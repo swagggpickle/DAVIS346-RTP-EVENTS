@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/csv"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -27,7 +28,7 @@ func readLine(r *csv.Reader) []string {
 	}
 	return line
 }
-func genAvi(csvFileName string, width int32, degree int32, rate int32, numOfThread int32) {
+func genAvi(rate int32, numOfThread int32) {
 	frameInterval := 1e6 / (rate)
 	setDecExpLookup(frameInterval)
 	setHSVColorLookup()
@@ -60,11 +61,11 @@ func genAvi(csvFileName string, width int32, degree int32, rate int32, numOfThre
 	for i := int32(0); i < numOfThread; i += 1 {
 		go frameColorThread(frameQueue, framePool, writeQueue, quiteQueue)
 	}
-	go frameWriteThread("large.avi", frameQueue, framePool, writeQueue)
+	go frameWriteThread(fileName + ".avi", frameQueue, framePool, writeQueue)
 	// done spawning thread
 
 	// opening file
-	r := genFileReader(csvFileName)
+	r := genFileReader(fileName + ".csv")
 
 	line1 := readLine(r) // read first line
 	if line1 == nil {
@@ -123,5 +124,21 @@ func genAvi(csvFileName string, width int32, degree int32, rate int32, numOfThre
 
 func main() {
 	println("Started up the program...")
-	genAvi("large.csv", frameWidth, 5, frameRate, 1)
+	var decayRateString string
+	//var fileName string
+	flag.StringVar(&fileName, "fileName", "file", "provide the name of the csv without the extension")
+	flag.StringVar(&decayRateString, "decayRate", "0.15", "Rate at which pixel will dacay for every frame it has not changed")
+	flag.IntVar(&interLaceSize, "interLaceSize", 2, "how wide each interlaced frame is")
+	flag.IntVar(&frameRate, "frameRate", 60, "how wide each interlaced frame is")
+	flag.IntVar(&frameWidth, "frameWidth", 600, "Number of pixels desired for screen")
+	flag.IntVar(&MedianBlurKSize, "MedianBlurKSize", 5, "aperture linear size; it must be odd and greater than 1 smaller the value faster the code")
+	flag.Parse()
+
+	fmt.Println("fileName", fileName)
+	fmt.Println("decayRateString", decayRateString)
+	fmt.Println("interLaceSize", interLaceSize)
+	fmt.Println("frameRate", frameRate)
+	fmt.Println("frameWidth", frameWidth)
+	fmt.Println("MedianBlurKSize", MedianBlurKSize)
+	genAvi(int32(frameRate), 1)
 }

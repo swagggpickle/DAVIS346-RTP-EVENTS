@@ -10,15 +10,17 @@ import (
 	"sync"
 	"time"
 )
-
 const (
-	dvsX            = 346
-	dvsY            = 260
-	decayRate       = .15
-	blockSize       = 3
-	frameRate       = 60
-	frameWidth      = 600
-	MedianBlurKSize = 5
+	dvsX             = 346
+	dvsY             = 260
+)
+var (
+	fileName string
+	decayRate        = .15
+	interLaceSize    = 5
+	frameRate        = 60
+	frameWidth       = 600
+	MedianBlurKSize  = 5
 )
 
 type ColorType struct {
@@ -162,13 +164,13 @@ func colorMap(frame *FullFrame) *HSVColor {
 
 func frameColorThread(frameQueue, framePool chan *FullFrame, writeQueue chan *HSVColor, quiteChannel chan string) {
 	for {
-		start := time.Now()
+		//start := time.Now()
 		var videoFrame *FullFrame = <-frameQueue
 		hsv := colorMap(videoFrame)
 		hsv.frameCount = videoFrame.frameCount
 		framePool <- videoFrame // put back to mempool
 		writeQueue <- hsv
-		fmt.Println("time since start ", time.Since(start))
+		//fmt.Println("time since start ", time.Since(start))
 		select {
 		case <-quiteChannel:
 			break
@@ -195,7 +197,7 @@ type TransformType struct {
 func threadedColorPool(tChan chan TransformType) {
 	for {
 		toUpdate := <-tChan
-		for dX := toUpdate.startPos; dX < dvsX; dX += blockSize {
+		for dX := toUpdate.startPos; dX < dvsX; dX += interLaceSize {
 			setColorAt(dX, toUpdate.y, toUpdate.color, toUpdate.mat)
 		}
 		toUpdate.wg.Done()
@@ -205,10 +207,10 @@ func threadedColorPool(tChan chan TransformType) {
 func hsvColorToMat(color *HSVColor, mat *gocv.Mat, startPos int, tChan chan TransformType) {
 	var wg sync.WaitGroup // opposite of semaphore counts down and when zero .Wait() releases
 	toTransform := TransformType{wg: &wg, y: 0, startPos: startPos, mat: mat, color: color}
-
+	wg.Add(dvsY)
 	for dY := 0; dY < dvsY; dY += 1 {
 		// for each column let a worker handle all the X
-		wg.Add(1)
+
 		toTransform.y = dY
 		tChan <- toTransform // add to pool to do work
 	}
@@ -218,7 +220,7 @@ func hsvColorToMat(color *HSVColor, mat *gocv.Mat, startPos int, tChan chan Tran
 func frameWriteThread(fileName string, frameQueue, framePool chan *FullFrame, writeQueue chan *HSVColor) {
 	height := frameWidth * dvsY / dvsX
 
-	writer, err := gocv.VideoWriterFile(fileName, "MJPG", frameRate, frameWidth, height, true)
+	writer, err := gocv.VideoWriterFile(fileName, "MJPG", float64(frameRate), frameWidth, height, true)
 	if err != nil {
 		fmt.Println("failed to open write file")
 		os.Exit(0)
@@ -232,34 +234,28 @@ func frameWriteThread(fileName string, frameQueue, framePool chan *FullFrame, wr
 
 	s    := gocv.NewScalar(255.0, 255.0, 180.0, 0.0)
 	mMat := gocv.NewMatWithSizeFromScalar(s, dvsY, dvsX, gocv.MatTypeCV8UC3)
-	rMat := gocv.NewMatWithSizeFromScalar(s, dvsY, dvsX, gocv.MatTypeCV8UC3)
+
+
 	rowPos := 0
 	for {
 		toWrite := <-writeQueue // waits for frame color thread to produce results
 		start := time.Now()     // for performance analysis
+		rMat := gocv.NewMatWithSizeFromScalar(s, dvsY, dvsX, gocv.MatTypeCV8UC3)
 		if currentFrame == toWrite.frameCount {
 			hsvColorToMat(toWrite, &mMat, rowPos, tChan)
 			rowPos += 1
-			rowPos %= blockSize
+			rowPos %= interLaceSize
 			gocv.Resize(mMat, &rMat, image.Point{X: frameWidth, Y: height}, 0, 0, gocv.InterpolationLinear)
 			gocv.MedianBlur(rMat, &rMat, MedianBlurKSize)
-			err := writer.Write(rMat)
-			if err != nil {
-				fmt.Println("There was an error when writing to f")
-				break
-			}
+			go writer.Write(rMat)
 			currentFrame += 1
 			for val, ok := keyVal[currentFrame]; ok; {
 				hsvColorToMat(val, &mMat, rowPos, tChan)
 				rowPos += 1
-				rowPos %= blockSize
+				rowPos %= interLaceSize
 				gocv.Resize(mMat, &rMat, image.Point{X: frameWidth, Y: height}, 0, 0, gocv.InterpolationLinear)
 				gocv.MedianBlur(rMat, &rMat, MedianBlurKSize)
-				err = writer.Write(rMat)
-				if err != nil {
-					fmt.Println("There was an error when writing to f")
-					break
-				}
+				go writer.Write(rMat)
 				delete(keyVal, currentFrame)
 
 				currentFrame += 1
@@ -269,6 +265,7 @@ func frameWriteThread(fileName string, frameQueue, framePool chan *FullFrame, wr
 			fmt.Println("going to write to keyVal map")
 			keyVal[toWrite.frameCount] = toWrite
 		}
-		fmt.Println("time since write ", time.Since(start))
+		fmt.Println("time since write ", time.Since(start), " current frame ", currentFrame)
+
 	}
 }
