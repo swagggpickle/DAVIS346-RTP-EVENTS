@@ -17,7 +17,7 @@ const (
 var (
 	fileName string
 	decayRate        = .15
-	interLaceSize    = 5
+	interLaceSize    = 1
 	frameRate        = 60
 	frameWidth       = 600
 	MedianBlurKSize  = 5
@@ -210,11 +210,19 @@ func hsvColorToMat(color *HSVColor, mat *gocv.Mat, startPos int, tChan chan Tran
 	wg.Add(dvsY)
 	for dY := 0; dY < dvsY; dY += 1 {
 		// for each column let a worker handle all the X
-
 		toTransform.y = dY
 		tChan <- toTransform // add to pool to do work
 	}
 	wg.Wait() // wait until all the work is done so we can display
+}
+func writeLive(writeChan chan *gocv.Mat) {
+	writer := gocv.NewWindow("Face Detect")
+	for {
+		write := <- writeChan
+		writer.IMShow(*write)
+		writer.WaitKey(16)
+
+	}
 }
 
 func frameWriteThread(fileName string, frameQueue, framePool chan *FullFrame, writeQueue chan *HSVColor) {
@@ -235,27 +243,34 @@ func frameWriteThread(fileName string, frameQueue, framePool chan *FullFrame, wr
 	s    := gocv.NewScalar(255.0, 255.0, 180.0, 0.0)
 	mMat := gocv.NewMatWithSizeFromScalar(s, dvsY, dvsX, gocv.MatTypeCV8UC3)
 
+	//defer window.Close()
+	writeChan := make(chan *gocv.Mat, 60*3*4)
+	go writeLive(writeChan)
 
 	rowPos := 0
 	for {
 		toWrite := <-writeQueue // waits for frame color thread to produce results
 		start := time.Now()     // for performance analysis
-		rMat := gocv.NewMatWithSizeFromScalar(s, dvsY, dvsX, gocv.MatTypeCV8UC3)
+
 		if currentFrame == toWrite.frameCount {
 			hsvColorToMat(toWrite, &mMat, rowPos, tChan)
 			rowPos += 1
 			rowPos %= interLaceSize
+			rMat := gocv.NewMatWithSizeFromScalar(s, dvsY, dvsX, gocv.MatTypeCV8UC3)
 			gocv.Resize(mMat, &rMat, image.Point{X: frameWidth, Y: height}, 0, 0, gocv.InterpolationLinear)
 			gocv.MedianBlur(rMat, &rMat, MedianBlurKSize)
 			go writer.Write(rMat)
+			writeChan <- &rMat // live stream write
 			currentFrame += 1
 			for val, ok := keyVal[currentFrame]; ok; {
 				hsvColorToMat(val, &mMat, rowPos, tChan)
 				rowPos += 1
 				rowPos %= interLaceSize
+				rMat = gocv.NewMatWithSizeFromScalar(s, dvsY, dvsX, gocv.MatTypeCV8UC3)
 				gocv.Resize(mMat, &rMat, image.Point{X: frameWidth, Y: height}, 0, 0, gocv.InterpolationLinear)
 				gocv.MedianBlur(rMat, &rMat, MedianBlurKSize)
 				go writer.Write(rMat)
+				writeChan <- &rMat
 				delete(keyVal, currentFrame)
 
 				currentFrame += 1
