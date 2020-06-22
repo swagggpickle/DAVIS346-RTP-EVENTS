@@ -1,26 +1,20 @@
-extern crate csv;
+#![warn(unused_extern_crates)]
+use csv;
 use csv::Error;
 use std::fs;
 mod pixel_event;
-extern crate clap;
-use clap::{Arg, App};
 mod dvs_const;
 mod frame;
 mod hsv_frame;
+use clap::{Arg, App};
 use opencv::prelude::*;
 use std::sync::mpsc::{Sender, Receiver};
-use std::sync::mpsc;
+use std::sync::mpsc::channel;
 use std::thread;
 use threadpool::ThreadPool;
 use std::collections::HashMap;
-#[macro_use]
-extern crate lazy_static;
 use std::time::{Instant};
-
-extern crate num_cpus;
-
-
-
+use num_cpus;
 fn main() -> Result<(), Error> {
     let matches = arguments();
     let filename = matches.value_of("file").unwrap();
@@ -28,7 +22,6 @@ fn main() -> Result<(), Error> {
     if decay_rate <= 0.0 {
         panic!("Invalid decay rate. Must be > 0.0");
     }
-
     let frame_rate:i32 = matches.value_of("framerate").unwrap().parse().unwrap();
     if frame_rate <= 0 || frame_rate > 120 {
         panic!("Invalid frame rate size rate. Must be  0 < interlace < 121.");
@@ -41,9 +34,9 @@ fn main() -> Result<(), Error> {
     if output_file.len() < 5 {
         panic!("Invlaid file name {}", output_file);
     }
-    lazy_static!{
-        static ref COLOR_RANGE: hsv_frame::ColorRange = hsv_frame::ColorRange::new();
-    }
+
+    let color_range: hsv_frame::ColorRange = hsv_frame::ColorRange::new();
+    
     println!("File Name:      {}", filename);
     println!("Decay Rate:     {}", decay_rate);
     println!("Frame Rate:     {}", frame_rate);
@@ -65,11 +58,12 @@ fn main() -> Result<(), Error> {
 
     
     let decay_values = hsv_frame::DecayValues::new(frame_interval, decay_rate);
-    let (tx, rx): (Sender<hsv_frame::HSVColor>, Receiver<hsv_frame::HSVColor>) = mpsc::channel();
+    let (tx, rx): (Sender<(hsv_frame::HSVColor, i32)>, Receiver<(hsv_frame::HSVColor, i32)>) = channel();
     let handle = thread::spawn(move || {
         frame_write(output_file, frame_rate, median_blur, rx);
     });
     let now = Instant::now();
+    let mut current_frame = 0;
     for record in reader.records() {
         let record = record?;
         let pe = factory.make_pixel_event(record);
@@ -77,9 +71,10 @@ fn main() -> Result<(), Error> {
             frame.frame_count = frame_count;
             frame.next_frame = next_frame;
             
-            let color_frame = hsv_frame::HSVColor::make_color(frame, &COLOR_RANGE, &decay_values);
-            tx.send(color_frame).unwrap();
+            let color_frame = hsv_frame::HSVColor::make_color(&frame, &color_range, &decay_values);
+            tx.send((color_frame, current_frame)).unwrap();
 
+            current_frame += 1;
             frame_count += 1;
             next_frame = pe.timestamp + frame_interval;
 
@@ -100,7 +95,8 @@ fn main() -> Result<(), Error> {
     println!("Time to write file: {:?}", file_completion);
     Ok(())
 }
-fn frame_write(file_name: String, frame_rate: f64, blur_size: i32, rx: Receiver<hsv_frame::HSVColor>) {
+
+fn file_writer(rx: Receiver<(opencv::core::Mat, i32)>, file_name: String, frame_rate: f64) {
     let frame_width       = 600;
     let height = frame_width * dvs_const::DVS_Y / dvs_const::DVS_X;
     let file_name = file_name + ".avi";
@@ -110,41 +106,46 @@ fn frame_write(file_name: String, frame_rate: f64, blur_size: i32, rx: Receiver<
         Ok(writer) => writer,
         Err(e) => panic!(e),
     };
-
-    let (tx, final_rx): (Sender<(opencv::core::Mat, i32)>, Receiver<(opencv::core::Mat, i32)>) = mpsc::channel();
-    let file_writer = thread::spawn(move || {
-        let mut current_frame_count = 0;
-        let mut map_key: HashMap<i32, opencv::core::Mat> = HashMap::new();
-        loop {
-            let val = final_rx.recv();
-            let (val, frame_num) = match val {
-                Ok(val) => val,
-                Err(e) => {
-                    println!("{}", e);
-                    return;
-                }
-            };
-            if frame_num != current_frame_count {
-                map_key.insert(frame_num, val);
-                continue;
+    let mut current_frame_count = 0;
+    let mut map_key: HashMap<i32, opencv::core::Mat> = HashMap::new();
+    loop {
+        let val = rx.recv();
+        let (val, frame_num) = match val {
+            Ok(val) => val,
+            Err(e) => {
+                println!("{}", e);
+                return;
+            }
+        };
+        if frame_num != current_frame_count {
+            map_key.insert(frame_num, val);
+            continue;
+        }
+        current_frame_count += 1;
+        writer.write(&val).unwrap();
+        while map_key.contains_key(&current_frame_count) {
+            match map_key.remove(&current_frame_count) {
+                Some(val) => writer.write(&val).unwrap(),
+                None => panic!("map did not have entry?"),
             }
             current_frame_count += 1;
-            writer.write(&val).unwrap();
-            while map_key.contains_key(&current_frame_count) {
-                match map_key.remove(&current_frame_count) {
-                    Some(val) => writer.write(&val).unwrap(),
-                    None => panic!("map did not have entry?"),
-                }
-                current_frame_count += 1;
-            }
-
         }
+
+    }
+}
+fn frame_write(file_name: String, frame_rate: f64, blur_size: i32, rx: Receiver<(hsv_frame::HSVColor, i32)>) {
+    let frame_width       = 600;
+    let height = frame_width * dvs_const::DVS_Y / dvs_const::DVS_X;
+
+    let (tx, final_rx): (Sender<(opencv::core::Mat, i32)>, Receiver<(opencv::core::Mat, i32)>) = channel();
+    let file_writer = thread::spawn(move || {
+        file_writer(final_rx, file_name, frame_rate);
     });
     let num_of_cpus = num_cpus::get();
     let pool = ThreadPool::new(num_of_cpus * 2);
     loop {
         let val = rx.recv();
-        let val = match val {
+        let (val, current_frame) = match val {
             Ok(val) => val,
             Err(e) => {
                 println!("{}", e);
@@ -153,25 +154,27 @@ fn frame_write(file_name: String, frame_rate: f64, blur_size: i32, rx: Receiver<
         };
 
         let mat = val.arr;
-        let frame_num = val.frame_count;
-        let tx = tx.clone();
+        let sender = tx.clone();
         pool.execute(move || {
-            let mut r_mat = unsafe {
-                opencv::core::Mat:: new_rows_cols(height, frame_width, opencv::core::CV_8UC3).unwrap()
-            };
-            let size = r_mat.size().unwrap();
-            opencv::imgproc::resize(&mat, &mut r_mat, size, 0.0, 0.0, opencv::imgproc::INTER_LINEAR).unwrap();
-            
-            let mut mb_mat = unsafe {
-                opencv::core::Mat:: new_rows_cols( height, frame_width, opencv::core::CV_8UC3).unwrap()
-            };
-            opencv::imgproc::median_blur(&r_mat, &mut mb_mat, blur_size).unwrap();
-            tx.send((mb_mat, frame_num)).unwrap();
-    
-        });    
+            process_frame(mat, sender, height, frame_width, blur_size, current_frame);
+        }); 
     }
     drop(tx);
     file_writer.join().unwrap();
+}
+
+fn process_frame(mat: opencv::core::Mat, tx: Sender<(opencv::core::Mat, i32)>, height: i32, frame_width: i32, blur_size: i32, frame_num: i32) {
+    let mut r_mat = unsafe {
+        opencv::core::Mat:: new_rows_cols(height, frame_width, opencv::core::CV_8UC3).unwrap()
+    };
+    let size = r_mat.size().unwrap();
+    opencv::imgproc::resize(&mat, &mut r_mat, size, 0.0, 0.0, opencv::imgproc::INTER_LINEAR).unwrap();
+    
+    let mut mb_mat = unsafe {
+        opencv::core::Mat:: new_rows_cols( height, frame_width, opencv::core::CV_8UC3).unwrap()
+    };
+    opencv::imgproc::median_blur(&r_mat, &mut mb_mat, blur_size).unwrap();
+    tx.send((mb_mat, frame_num)).unwrap();
 }
 
 fn arguments() -> clap::ArgMatches {

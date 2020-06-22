@@ -96,16 +96,14 @@ pub struct HSVColor {
 }
 
 impl HSVColor {
-    fn color(frame: frame::Frame, range: &ColorRange, decay_values: &DecayValues) -> opencv::core::Mat {
+    fn color(&mut self,frame: &frame::Frame, range: &ColorRange, decay_values: &DecayValues) {
         let len_decay_values = decay_values.vals.len() as i64;
         let i_frame_interval = 1.0 / frame.frame_interval as f64;
         let next_frame = frame.next_frame as f64;
-        let mut mat = unsafe {
-            opencv::core::Mat::new_rows_cols(dvs_const::DVS_Y, dvs_const::DVS_X , opencv::core::CV_8UC3).unwrap()
-        };
+        
         for (i, row) in frame.time_array.iter().enumerate() {
             for (y, col) in row.iter().enumerate() {
-                let elem = mat.at_2d_mut::<opencv::core::Vec3b>(y as i32, i as i32);
+                let elem = self.arr.at_2d_mut::<opencv::core::Vec3b>(y as i32, i as i32);
                 let elem = match elem {
                     Ok(elem) => elem,
                     Err(e) => panic!("{}",e),
@@ -120,14 +118,15 @@ impl HSVColor {
                 *elem = opencv::core::Vec3::<u8>::from(range.colors[decay_dx_dy].data);  
             }
         }
-        
-        return mat;
     }
-    pub fn make_color(frame: frame::Frame, range: &ColorRange, decay_values: &DecayValues) -> Self {
-        let color_frame= HSVColor{
+    pub fn make_color(frame: &frame::Frame, range: &ColorRange, decay_values: &DecayValues) -> Self {
+        let mut color_frame= HSVColor{
             frame_count: frame.frame_count,
-            arr : HSVColor::color(frame, range, decay_values),
+            arr: unsafe {
+                    opencv::core::Mat::new_rows_cols(dvs_const::DVS_Y, dvs_const::DVS_X , opencv::core::CV_8UC3).unwrap()
+            },
         };
+        color_frame.color(frame, range, decay_values);
         return color_frame;
     }
 }

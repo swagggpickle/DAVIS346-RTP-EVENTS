@@ -1,4 +1,4 @@
-extern crate csv;
+use csv;
 use crate::dvs_const;
 
 
