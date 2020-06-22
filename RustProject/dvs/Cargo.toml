@@ -1,0 +1,15 @@
+[package]
+name = "dvs"
+version = "0.1.0"
+authors = ["swagggpickle <you@example.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+csv = "1.0.0-beta.5"
+clap = "3.0.0-beta.1"
+opencv = "0.41"
+lazy_static = "1.4.0"
+threadpool = "1.8.1"
+num_cpus = "0.2"

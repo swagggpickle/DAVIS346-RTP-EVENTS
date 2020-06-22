@@ -1,0 +1,36 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "(linux)Launch",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/dvs",
+            "console": "integratedTerminal",
+            "env": {
+                "name":"RUST_BACKTRACE",
+                "value": "full"
+            },
+            "args": ["--file", "large.csv", "--framerate", "30"],
+        },
+        {
+            "name": "(Windows) Launch",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceRoot}/target/debug/foo.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceRoot}",
+            "environment": [],
+            "externalConsole": true
+        },
+        {
+            "name": "(OSX) Launch",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceRoot}/target/debug/foo",
+            "args": [],
+            "cwd": "${workspaceRoot}",
+        }
+    ]
+}
