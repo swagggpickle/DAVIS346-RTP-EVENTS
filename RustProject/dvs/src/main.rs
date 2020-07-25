@@ -62,10 +62,10 @@ fn main() -> Result<(), Error> {
     let handle = thread::spawn(move || {
         frame_write(output_file, frame_rate, median_blur, rx);
     });
-    let now = Instant::now();
+    let start = Instant::now();
     let mut current_frame = 0;
     for record in reader.records() {
-        let record = record?;
+        let record = &record?;
         let pe = factory.make_pixel_event(record);
         if pe.timestamp > next_frame {
             frame.frame_count = frame_count;
@@ -85,12 +85,12 @@ fn main() -> Result<(), Error> {
             frame.time_array[pe.x_address as usize][pe.y_address as usize] = pe.timestamp as f64;
         } 
     }
-    let new_now = Instant::now();
-    let read_file_duration = new_now.checked_duration_since(now);
+    let end = Instant::now();
+    let read_file_duration = end.checked_duration_since(start);
     drop(tx);
     handle.join().unwrap();
-    let new_now = Instant::now();
-    let file_completion = new_now.checked_duration_since(now);
+    let end = Instant::now();
+    let file_completion = end.checked_duration_since(start);
     println!("Time to read time:  {:?}", read_file_duration);
     println!("Time to write file: {:?}", file_completion);
     Ok(())
@@ -171,7 +171,7 @@ fn process_frame(mat: opencv::core::Mat, tx: Sender<(opencv::core::Mat, i32)>, h
     opencv::imgproc::resize(&mat, &mut r_mat, size, 0.0, 0.0, opencv::imgproc::INTER_LINEAR).unwrap();
     
     let mut mb_mat = unsafe {
-        opencv::core::Mat:: new_rows_cols( height, frame_width, opencv::core::CV_8UC3).unwrap()
+        opencv::core::Mat::new_rows_cols( height, frame_width, opencv::core::CV_8UC3).unwrap()
     };
     opencv::imgproc::median_blur(&r_mat, &mut mb_mat, blur_size).unwrap();
     tx.send((mb_mat, frame_num)).unwrap();

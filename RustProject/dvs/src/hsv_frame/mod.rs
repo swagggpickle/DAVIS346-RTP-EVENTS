@@ -97,7 +97,7 @@ pub struct HSVColor {
 
 impl HSVColor {
     fn color(&mut self,frame: &frame::Frame, range: &ColorRange, decay_values: &DecayValues) {
-        let len_decay_values = decay_values.vals.len() as i64;
+        let len_decay_values = decay_values.vals.len() as usize;
         let i_frame_interval = 1.0 / frame.frame_interval as f64;
         let next_frame = frame.next_frame as f64;
         
@@ -109,7 +109,7 @@ impl HSVColor {
                     Err(e) => panic!("{}",e),
                 };
                 
-                let index = ((next_frame - col) * i_frame_interval) as i64;
+                let index = ((next_frame - col) * i_frame_interval) as usize;
                 let decay_dx_dy =  if index < len_decay_values {
                     decay_values.vals[index as usize] as usize
                 } else {

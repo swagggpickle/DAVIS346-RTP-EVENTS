@@ -28,13 +28,13 @@ impl From<csv::StringRecord> for PixelFactory {
     }
 }
 impl PixelFactory {
-    pub fn make_pixel_event(&self, record: csv::StringRecord) -> PixelEvent {
-        let mut pe = PixelEvent::default();
-        pe.timestamp = record[self.timestamp_pos].parse().unwrap();
-        pe.polarity = record[self.polarity_pos].parse().unwrap();
-        pe.x_address = dvs_const::DVS_X - record[self.x_address_pos].parse::<i32>().unwrap() - 1;
-        pe.y_address = dvs_const::DVS_Y - record[self.y_address_pos].parse::<i32>().unwrap() - 1;
-        return pe;
+    pub fn make_pixel_event(&self, record: &csv::StringRecord) -> PixelEvent {
+        PixelEvent {
+            timestamp: record[self.timestamp_pos].parse().unwrap(), 
+            polarity: record[self.polarity_pos].parse().unwrap(),
+            x_address: dvs_const::DVS_X - record[self.x_address_pos].parse::<i32>().unwrap() - 1,
+            y_address: dvs_const::DVS_Y - record[self.y_address_pos].parse::<i32>().unwrap() - 1
+        }
     }
 }
 #[derive(Debug,Default)]
