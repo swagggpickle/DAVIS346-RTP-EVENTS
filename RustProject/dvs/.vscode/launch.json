@@ -5,7 +5,7 @@
             "name": "(linux)Launch",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/target/debug/dvs",
+            "program": "${workspaceFolder}/target/release/dvs",
             "console": "integratedTerminal",
             "env": {
                 "name":"RUST_BACKTRACE",
