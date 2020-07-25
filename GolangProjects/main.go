@@ -7,6 +7,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync"
+	"time"
 )
 
 func genFileReader(csvFileName string) *csv.Reader {
@@ -32,6 +34,8 @@ func genAvi(rate int32, numOfThread int32) {
 	frameInterval := 1e6 / (rate)
 	setDecExpLookup(frameInterval)
 	setHSVColorLookup()
+	colorWG := &sync.WaitGroup{}
+	writeWG := &sync.WaitGroup{}
 
 	// double the max number of frames per second
 	// attempt to not make main collecting thread have to block
@@ -39,7 +43,6 @@ func genAvi(rate int32, numOfThread int32) {
 	framePool := make(chan *FullFrame, rate*3) // memory pool minimizing allocation at runtime
 	frameQueue := make(chan *FullFrame, rate*3)
 	writeQueue := make(chan *HSVColor, rate*3*numOfThread)
-	quiteQueue := make(chan string, rate*2)
 
 	/*
 	* If we run out of frames there is a larger problem going on
@@ -58,14 +61,16 @@ func genAvi(rate int32, numOfThread int32) {
 
 	// making threads if main is getting slowed down because the frameQueue
 	// is blocking try increasing the number of thread
-	for i := int32(0); i < numOfThread; i += 1 {
-		go frameColorThread(frameQueue, framePool, writeQueue, quiteQueue)
+	colorWG.Add(int(numOfThread))
+	writeWG.Add(1)
+	for i := int32(0); i < numOfThread; i++ {
+		go frameColorThread(frameQueue, framePool, writeQueue, colorWG)
 	}
-	go frameWriteThread(fileName + ".avi", frameQueue, framePool, writeQueue)
+	go frameWriteThread(frameQueue, framePool, writeQueue, writeWG)
 	// done spawning thread
 
 	// opening file
-	r := genFileReader(fileName + ".csv")
+	r := genFileReader(fileName)
 
 	line1 := readLine(r) // read first line
 	if line1 == nil {
@@ -79,8 +84,9 @@ func genAvi(rate int32, numOfThread int32) {
 
 	var p float64 = 0.0
 	frameCount := 0
-	for {
-		line2 = readLine(r)
+	start := time.Now() // for performance analysis
+	for line2 := readLine(r); len(line2) > 3; line2 = readLine(r) {
+		// line2 = readLine(r)
 		if len(line2) <= 3 {
 			break
 		}
@@ -106,8 +112,8 @@ func genAvi(rate int32, numOfThread int32) {
 			frameQueue <- tempFrame
 
 			// update our private data
-			frameCount += 1
-			nextFrame += frameInterval
+			frameCount++
+			nextFrame = int32(event.timeStamp) + int32(frameInterval)
 		}
 
 		if p > 0.0 { // if 1
@@ -116,9 +122,13 @@ func genAvi(rate int32, numOfThread int32) {
 		}
 
 	}
-	hold := <-quiteQueue
-	fmt.Println("hold {}", hold)
-	fmt.Println("DONE READING CSV")
+	close(frameQueue)
+	colorWG.Wait()
+	close(writeQueue)
+	writeWG.Wait()
+	fmt.Printf("total time: %s", time.Since(start))
+	// print total time here
+	fmt.Println("Exe done")
 
 }
 
@@ -127,8 +137,9 @@ func main() {
 	var decayRateString string
 	//var fileName string
 	flag.StringVar(&fileName, "fileName", "file", "provide the name of the csv without the extension")
+	flag.StringVar(&outputFile, "output", outputFile, "provide the name of the csv without the extension")
 	flag.StringVar(&decayRateString, "decayRate", "0.15", "Rate at which pixel will dacay for every frame it has not changed")
-	flag.IntVar(&interLaceSize, "interLaceSize", 2, "how wide each interlaced frame is")
+	flag.IntVar(&interLaceSize, "interLaceSize", 1, "how wide each interlaced frame is")
 	flag.IntVar(&frameRate, "frameRate", 60, "how wide each interlaced frame is")
 	flag.IntVar(&frameWidth, "frameWidth", 600, "Number of pixels desired for screen")
 	flag.IntVar(&MedianBlurKSize, "MedianBlurKSize", 5, "aperture linear size; it must be odd and greater than 1 smaller the value faster the code")
@@ -140,5 +151,5 @@ func main() {
 	fmt.Println("frameRate", frameRate)
 	fmt.Println("frameWidth", frameWidth)
 	fmt.Println("MedianBlurKSize", MedianBlurKSize)
-	genAvi(int32(frameRate), 1)
+	genAvi(int32(frameRate), 48)
 }
