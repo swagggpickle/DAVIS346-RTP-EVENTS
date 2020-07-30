@@ -66,7 +66,7 @@ func genAvi(rate int32, numOfThread int32) {
 	for i := int32(0); i < numOfThread; i++ {
 		go frameColorThread(frameQueue, framePool, writeQueue, colorWG)
 	}
-	go frameWriteThread(frameQueue, framePool, writeQueue, writeWG)
+	go frameStepThread(frameQueue, framePool, writeQueue, writeWG)
 	// done spawning thread
 
 	// opening file
@@ -122,6 +122,7 @@ func genAvi(rate int32, numOfThread int32) {
 		}
 
 	}
+	fmt.Printf("done reading file: %s", time.Since(start))
 	close(frameQueue)
 	colorWG.Wait()
 	close(writeQueue)

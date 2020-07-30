@@ -189,8 +189,7 @@ type TransformType struct {
 }
 
 func threadedColorPool(tChan chan TransformType) {
-	for {
-		toUpdate := <-tChan
+	for toUpdate := range tChan {
 		for dX := toUpdate.startPos; dX < dvsX; dX += interLaceSize {
 			setColorAt(dX, toUpdate.y, toUpdate.color, toUpdate.mat)
 		}
@@ -199,7 +198,7 @@ func threadedColorPool(tChan chan TransformType) {
 }
 
 func hsvColorToMat(color *HSVColor, mat *gocv.Mat, startPos int, tChan chan TransformType) {
-	var wg sync.WaitGroup // opposite of semaphore counts down and when zero .Wait() releases
+	var wg sync.WaitGroup // opposite of semaphore counts down and when zero .Wait() relea,ses
 	toTransform := TransformType{wg: &wg, y: 0, startPos: startPos, mat: mat, color: color}
 	wg.Add(dvsY)
 	for dY := 0; dY < dvsY; dY++ {
@@ -209,68 +208,70 @@ func hsvColorToMat(color *HSVColor, mat *gocv.Mat, startPos int, tChan chan Tran
 	}
 	wg.Wait() // wait until all the work is done so we can display
 }
-func writeLive(writeChan chan *gocv.Mat) {
-	writer := gocv.NewWindow("Face Detect")
-	for {
-		write := <-writeChan
-		writer.IMShow(*write)
-		writer.WaitKey(16)
 
-	}
-}
-
-func frameWriteThread(frameQueue, framePool chan *FullFrame, writeQueue chan *HSVColor, wg *sync.WaitGroup) {
-	defer wg.Done()
+func colorFrame(toWrite *HSVColor, tChan chan TransformType, writeTo chan *MatFrame, wg *sync.WaitGroup) {
+	s := gocv.NewScalar(255.0, 255.0, 180.0, 0.0)
+	mMat := gocv.NewMatWithSizeFromScalar(s, dvsY, dvsX, gocv.MatTypeCV8UC3)
+	hsvColorToMat(toWrite, &mMat, 0, tChan)
 	height := frameWidth * dvsY / dvsX
-
+	rMat := gocv.NewMatWithSizeFromScalar(s, dvsY, dvsX, gocv.MatTypeCV8UC3)
+	gocv.Resize(mMat, &rMat, image.Point{X: frameWidth, Y: height}, 0, 0, gocv.InterpolationLinear)
+	gocv.MedianBlur(rMat, &rMat, MedianBlurKSize)
+	writeTo <- &MatFrame{
+		 &rMat, 
+		toWrite.frameCount,
+	}
+	wg.Done()
+}
+func frameWriteThread(waitFor chan *MatFrame, wg *sync.WaitGroup) {
+	var keyVal = make(map[int32]*gocv.Mat)
+	var currentFrame int32 = 0
+	height := frameWidth * dvsY / dvsX
 	writer, err := gocv.VideoWriterFile(outputFile, "MJPG", float64(frameRate), frameWidth, height, true)
 	if err != nil {
 		fmt.Println("failed to open write file")
 		os.Exit(0)
 	}
+	for toWrite := range waitFor {
+		if currentFrame != toWrite.frameCount {
+			keyVal[toWrite.frameCount] = toWrite.mat
+			continue
+		} 
+		currentFrame++
+		// println("writing frame")
+		writer.Write(*(toWrite.mat))
+		for val, ok := keyVal[currentFrame]; ok; val, ok = keyVal[currentFrame] {
+			writer.Write(*(val))
+			delete(keyVal, currentFrame)
+			currentFrame++
+		}		
+	}
+	wg.Done()
+}
+type MatFrame struct {
+	mat *gocv.Mat
+	frameCount int32
+}
+
+func frameStepThread(frameQueue, framePool chan *FullFrame, writeQueue chan *HSVColor, wg *sync.WaitGroup) {
+	defer wg.Done()
+
 	tChan := make(chan TransformType, dvsY)
 	for i := 0; i < dvsY; i++ {
 		go threadedColorPool(tChan)
 	}
-	var keyVal = make(map[int32]*HSVColor)
-	var currentFrame int32 = 0
 
-	s := gocv.NewScalar(255.0, 255.0, 180.0, 0.0)
-	mMat := gocv.NewMatWithSizeFromScalar(s, dvsY, dvsX, gocv.MatTypeCV8UC3)
-
-	rowPos := 0
+	finalChannel := make(chan *MatFrame, 1000)
+	finalWG := &sync.WaitGroup{}
+	colorWG := &sync.WaitGroup{}
+	finalWG.Add(1)
+	go frameWriteThread(finalChannel, finalWG)
+	// rowPos := 0
 	for toWrite := range writeQueue {
-		// toWrite := <-writeQueue // waits for frame color thread to produce results
-
-		if currentFrame == toWrite.frameCount {
-			hsvColorToMat(toWrite, &mMat, rowPos, tChan)
-			rowPos++
-			rowPos %= interLaceSize
-			rMat := gocv.NewMatWithSizeFromScalar(s, dvsY, dvsX, gocv.MatTypeCV8UC3)
-			gocv.Resize(mMat, &rMat, image.Point{X: frameWidth, Y: height}, 0, 0, gocv.InterpolationLinear)
-			gocv.MedianBlur(rMat, &rMat, MedianBlurKSize)
-			go writer.Write(rMat)
-			// writeChan <- &rMat // live stream write
-			currentFrame++
-			for val, ok := keyVal[currentFrame]; ok; {
-				hsvColorToMat(val, &mMat, rowPos, tChan)
-				rowPos++
-				rowPos %= interLaceSize
-				rMat = gocv.NewMatWithSizeFromScalar(s, dvsY, dvsX, gocv.MatTypeCV8UC3)
-				gocv.Resize(mMat, &rMat, image.Point{X: frameWidth, Y: height}, 0, 0, gocv.InterpolationLinear)
-				gocv.MedianBlur(rMat, &rMat, MedianBlurKSize)
-				go writer.Write(rMat)
-				// writeChan <- &rMat
-				delete(keyVal, currentFrame)
-
-				currentFrame++
-				val, ok = keyVal[currentFrame]
-			}
-		} else {
-			fmt.Println("going to write to keyVal map")
-			keyVal[toWrite.frameCount] = toWrite
-		}
-		// fmt.Println("time since write ", time.Since(start), " current frame ", currentFrame)
-
+		colorWG.Add(1)
+		go colorFrame(toWrite, tChan, finalChannel, colorWG)
 	}
+	colorWG.Wait()
+	close(finalChannel)
+	finalWG.Wait()
 }
