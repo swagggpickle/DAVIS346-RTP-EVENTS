@@ -1,0 +1,47 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "shell",
+			"command": "cargo build -j 32",
+			"group": "build",
+			"label": "rust: cargo build"
+		},
+		{
+			"type": "shell",
+			"command": "cargo build -j 32 --release",
+			"group": "build",
+			"label": "rust: cargo build release"
+		},
+		{
+			"type": "shell",
+			"command": "cargo clean",
+			"group": "build",
+			"label": "rust: cargo clean"
+		},
+		{
+			"type": "shell",
+			"command": "cargo clean --release",
+			"group": "build",
+			"label": "rust: cargo clean release"
+		},
+		// {
+		// 	"type": "cargo",
+		// 	"command": "build --release -j 32",
+		// 	"problemMatcher": [
+		// 		"$rustc"
+		// 	],
+		// 	"group": "build",
+		// 	"label": "rust: cargo build release"
+		// },
+		// {
+		// 	"type": "cargo",
+		// 	"command": "clean",
+		// 	"problemMatcher": [
+		// 		"$rustc"
+		// 	],
+		// 	"group": "build",
+		// 	"label": "rust: cargo clean"
+		// }
+	]
+}

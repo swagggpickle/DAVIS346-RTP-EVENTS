@@ -5,32 +5,16 @@
             "name": "(linux)Launch",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/target/release/dvs",
-            "console": "integratedTerminal",
-            "env": {
-                "name":"RUST_BACKTRACE",
-                "value": "full"
+            "program": "${workspaceFolder}/target/debug/dvs",
+            "console": "internalConsole",
+            "env":{ 
+                "RUST_BACKTRACE": "full",
+                "OPENCV_LINK_LIBS": "/home/swagggpickle/Workspace/cpp/opencv/build/lib",
+                "PKG_CONFIG_PATH": "/home/swagggpickle/Workspace/cpp/opencv/build/unix-install",
+                "LD_LIBRARY_PATH": "/home/swagggpickle/Workspace/cpp/opencv/build/lib:/usr/local/lib",
+                "OpenCV_DIR": "/home/swagggpickle/Workspace/cpp/opencv/build",
             },
             "args": ["--file", "large.csv", "--framerate", "30"],
         },
-        {
-            "name": "(Windows) Launch",
-            "type": "cppvsdbg",
-            "request": "launch",
-            "program": "${workspaceRoot}/target/debug/foo.exe",
-            "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceRoot}",
-            "environment": [],
-            "externalConsole": true
-        },
-        {
-            "name": "(OSX) Launch",
-            "type": "lldb",
-            "request": "launch",
-            "program": "${workspaceRoot}/target/debug/foo",
-            "args": [],
-            "cwd": "${workspaceRoot}",
-        }
     ]
 }
